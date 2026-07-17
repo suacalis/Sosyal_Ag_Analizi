@@ -10,6 +10,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+<script type="module">
+  // PDF.js'i window.pdfjsLib'e bağla
+  import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+  window.dispatchEvent(new Event('pdfjs-ready'));
+</script>
 <script type="module">
   // Transformers.js — tarayıcıda gerçek NER
   // ES modülü olarak yüklenir, window'a expose edilir
@@ -537,7 +545,7 @@
 <header>
   <div class="eyebrow">v1.0 · Tarayıcı içi analiz</div>
   <h1>Relationship <span class="italic">Network</span></h1>
-  <p class="subtitle">Bir metin dosyasındaki kişiler arasında geçen ilişkileri saptar, ağ haline getirir; merkezilik ve topluluk analizlerini yapar. Tarayıcı içinde çalışan yapay zeka NER ile şehir/kurum adlarını filtreler. Hiçbir veri sunucuya gönderilmez.</p>
+  <p class="subtitle">Bir metin ya da <strong>PDF</strong> dosyasındaki kişiler arasında geçen ilişkileri saptar, ağ haline getirir; merkezilik ve topluluk analizlerini yapar. Tarayıcı içinde çalışan yapay zeka NER ile şehir/kurum adlarını filtreler. Hiçbir veri sunucuya gönderilmez.</p>
 </header>
 
 <div class="layout">
@@ -545,9 +553,9 @@
     <div class="section">
       <div class="section-title">Metin</div>
       <div class="file-input-wrap">
-        <input type="file" id="file-input" accept=".txt,.md,text/plain">
+        <input type="file" id="file-input" accept=".txt,.md,.pdf,text/plain,application/pdf">
         <label for="file-input" class="file-label">
-          <span id="file-label-text">.txt dosyası seç veya sürükle</span>
+          <span id="file-label-text">.txt veya .pdf dosyası seç / sürükle</span>
           <span class="icon">↑</span>
         </label>
       </div>
@@ -735,6 +743,94 @@ window.addEventListener('transformers-ready', () => {
   setStatus('Transformers.js yüklendi. Hazır.');
 });
 
+let pdfjsReady = !!window.pdfjsLib;
+window.addEventListener('pdfjs-ready', () => { pdfjsReady = true; });
+
+// ============================================================
+// PDF READER (PDF.js ile metin çıkarımı)
+// ============================================================
+async function extractTextFromPDF(file, onProgress) {
+  // PDF.js hazır olmasını bekle
+  if (!pdfjsReady) {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('PDF.js yüklenemedi')), 15000);
+      if (pdfjsReady) { clearTimeout(timeout); resolve(); return; }
+      window.addEventListener('pdfjs-ready', () => { clearTimeout(timeout); resolve(); }, { once: true });
+    });
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const numPages = pdf.numPages;
+  const pageTexts = [];
+
+  for (let i = 1; i <= numPages; i++) {
+    if (onProgress) onProgress(i, numPages);
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+
+    // Metin akışını mantıklı bir sırayla birleştir
+    // Aynı satırdaki itemları birleştir, yeni satıra geç
+    let lastY = null;
+    let lineText = '';
+    const lines = [];
+
+    for (const item of content.items) {
+      const y = Math.round(item.transform[5]);
+      if (lastY === null) {
+        lineText = item.str;
+      } else if (Math.abs(y - lastY) < 2) {
+        // Aynı satır
+        // Ardındaki space gerektiriyor mu? hasEOL bilgisini de kullan
+        lineText += (item.str.startsWith(' ') || lineText.endsWith(' ') ? '' : ' ') + item.str;
+      } else {
+        lines.push(lineText.trim());
+        lineText = item.str;
+      }
+      lastY = y;
+      if (item.hasEOL) {
+        lines.push(lineText.trim());
+        lineText = '';
+        lastY = null;
+      }
+    }
+    if (lineText.trim()) lines.push(lineText.trim());
+
+    // Satır sonu tirelerini birleştir (kelime bölünmesi)
+    const merged = [];
+    for (let j = 0; j < lines.length; j++) {
+      let cur = lines[j];
+      if (cur.endsWith('-') && j + 1 < lines.length) {
+        // Sonraki satırın ilk kelimesini birleştir
+        const next = lines[j+1];
+        cur = cur.slice(0, -1) + next;
+        lines[j+1] = '';
+      }
+      if (cur) merged.push(cur);
+    }
+
+    pageTexts.push(merged.join('\n'));
+  }
+
+  // Sayfaları çift satır sonu ile birleştir (paragraf gibi)
+  return pageTexts.join('\n\n');
+}
+
+// Dosyayı uzantısına göre oku — txt ya da pdf
+async function readFileSmart(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+    setStatus(`📄 PDF okunuyor: ${file.name}...`);
+    const text = await extractTextFromPDF(file, (cur, total) => {
+      setStatus(`📄 PDF okunuyor: sayfa ${cur} / ${total}`);
+    });
+    return text;
+  } else {
+    // Text olarak oku
+    return await file.text();
+  }
+}
+
 // Topluluk renk paleti — sıcak/editöryel
 const PALETTE = [
   '#ff5b3a', '#f4c95d', '#5ed3a9', '#7aa6d6', '#c084f5',
@@ -760,9 +856,15 @@ document.getElementById('file-input').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
   document.getElementById('file-label-text').textContent = file.name;
-  const text = await file.text();
-  document.getElementById('text-input').value = text;
-  setStatus(`${file.name} yüklendi · ${text.length.toLocaleString()} karakter`);
+  try {
+    const text = await readFileSmart(file);
+    document.getElementById('text-input').value = text;
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    setStatus(`✓ ${file.name} yüklendi · ${text.length.toLocaleString()} karakter${isPdf ? ' (PDF\'ten çıkarıldı)' : ''}`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`✗ Dosya okunamadı: ${err.message}`, 'error');
+  }
 });
 
 document.querySelectorAll('.sample-btn').forEach(btn => {
@@ -804,9 +906,15 @@ fileLabel.addEventListener('drop', async e => {
   const file = e.dataTransfer.files[0];
   if (!file) return;
   document.getElementById('file-label-text').textContent = file.name;
-  const text = await file.text();
-  document.getElementById('text-input').value = text;
-  setStatus(`${file.name} yüklendi · ${text.length.toLocaleString()} karakter`);
+  try {
+    const text = await readFileSmart(file);
+    document.getElementById('text-input').value = text;
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    setStatus(`✓ ${file.name} yüklendi · ${text.length.toLocaleString()} karakter${isPdf ? ' (PDF\'ten çıkarıldı)' : ''}`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`✗ Dosya okunamadı: ${err.message}`, 'error');
+  }
 });
 
 // ============================================================
