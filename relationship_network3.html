@@ -1,0 +1,1757 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kişi İlişki Ağı · Relationship Network</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+<script type="module">
+  // Transformers.js — tarayıcıda gerçek NER
+  // ES modülü olarak yüklenir, window'a expose edilir
+  import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
+  // Modelleri lokalde değil HuggingFace Hub'dan çek
+  env.allowLocalModels = false;
+  env.useBrowserCache = true;
+  window.transformers = { pipeline, env };
+  window.dispatchEvent(new Event('transformers-ready'));
+</script>
+
+<style>
+  :root {
+    --bg: #0e1116;
+    --bg-elev: #161a22;
+    --bg-elev-2: #1d222c;
+    --ink: #e8e4d8;
+    --ink-dim: #8a8578;
+    --ink-faint: #4a4a44;
+    --accent: #ff5b3a;
+    --accent-2: #f4c95d;
+    --accent-3: #5ed3a9;
+    --border: #2a2f3a;
+    --shadow: 0 20px 60px rgba(0,0,0,0.5);
+    --grain-opacity: 0.04;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter Tight', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grain texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    z-index: 1000;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Header */
+  header {
+    padding: 32px 40px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: relative;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 900;
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  h1 .italic {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--accent-2);
+  }
+  .subtitle {
+    color: var(--ink-dim);
+    margin-top: 12px;
+    font-size: 14px;
+    max-width: 620px;
+  }
+
+  /* Layout */
+  .layout {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    min-height: calc(100vh - 130px);
+  }
+
+  /* Sidebar (controls) */
+  aside {
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border);
+    padding: 28px 28px 40px;
+    overflow-y: auto;
+    max-height: calc(100vh - 130px);
+  }
+
+  .section {
+    margin-bottom: 28px;
+  }
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--ink);
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+  label:first-child { margin-top: 0; }
+  .help {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+
+  textarea, input[type="text"], input[type="number"], select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  textarea {
+    resize: vertical;
+    min-height: 100px;
+    line-height: 1.5;
+  }
+  textarea:focus, input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--bg-elev-2);
+  }
+
+  .file-input-wrap {
+    position: relative;
+    overflow: hidden;
+    display: inline-block;
+    width: 100%;
+  }
+  .file-input-wrap input[type="file"] {
+    position: absolute;
+    left: -9999px;
+  }
+  .file-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    border: 1px dashed var(--border);
+    padding: 16px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-dim);
+    transition: all 0.2s;
+  }
+  .file-label:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+  .file-label .icon {
+    color: var(--accent);
+    font-size: 18px;
+  }
+
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+  }
+  .radio-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+  .radio-option:hover { background: var(--bg-elev-2); }
+  .radio-option input { accent-color: var(--accent); }
+  .radio-option.active {
+    background: var(--bg-elev-2);
+    color: var(--accent-2);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  button.primary {
+    width: 100%;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 14px;
+    border-radius: 6px;
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    margin-top: 20px;
+  }
+  button.primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(255, 91, 58, 0.3);
+  }
+  button.primary:active { transform: translateY(0); }
+  button.primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  button.secondary {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  button.secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Main canvas area */
+  main {
+    background: var(--bg);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .canvas-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .stats {
+    display: flex;
+    gap: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .stats .stat-value {
+    color: var(--accent-2);
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .stats .stat-label {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 9px;
+    margin-top: 2px;
+  }
+
+  #network-canvas {
+    flex: 1;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(255, 91, 58, 0.05), transparent 50%),
+      radial-gradient(ellipse at 70% 80%, rgba(94, 211, 169, 0.04), transparent 50%),
+      var(--bg);
+    position: relative;
+    min-height: 500px;
+    overflow: hidden;       /* ResizeObserver loop önleme */
+    contain: layout size;   /* Layout/size izolasyonu */
+  }
+
+  /* Empty state */
+  .empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    text-align: center;
+    z-index: 2;
+  }
+  .empty-state.hidden { display: none; }
+  .empty-state .number {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(120px, 20vw, 220px);
+    line-height: 0.9;
+    font-style: italic;
+    font-weight: 400;
+    color: var(--accent);
+    opacity: 0.15;
+    margin-bottom: -40px;
+  }
+  .empty-state h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 900;
+    font-size: 2rem;
+    margin-bottom: 12px;
+    letter-spacing: -0.02em;
+  }
+  .empty-state p {
+    color: var(--ink-dim);
+    max-width: 460px;
+    font-size: 14px;
+  }
+
+  /* Side panel for details */
+  .detail-panel {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 280px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    box-shadow: var(--shadow);
+    z-index: 10;
+    transform: translateX(calc(100% + 20px));
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .detail-panel.visible {
+    transform: translateX(0);
+  }
+  .detail-panel .close {
+    position: absolute;
+    top: 12px; right: 12px;
+    background: transparent;
+    border: none;
+    color: var(--ink-dim);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+  }
+  .detail-panel h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1.1;
+    margin-bottom: 4px;
+    padding-right: 24px;
+    letter-spacing: -0.01em;
+  }
+  .detail-panel .commune-tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 14px;
+  }
+  .detail-panel .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .detail-panel .metric:last-child { border-bottom: none; }
+  .detail-panel .metric .key {
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .detail-panel .metric .val {
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  .detail-panel h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-dim);
+    margin: 14px 0 8px;
+  }
+  .detail-panel .conn-list {
+    list-style: none;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .detail-panel .conn-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .detail-panel .conn-list li .w {
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  /* Status / messages */
+  .status-bar {
+    padding: 8px 24px;
+    background: var(--bg-elev);
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .status-bar .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-3);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+  /* Sample buttons row */
+  .sample-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .sample-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--ink-dim);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .sample-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+    aside {
+      max-height: none;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+    .detail-panel {
+      width: calc(100% - 32px);
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">v1.0 · Tarayıcı içi analiz</div>
+  <h1>Relationship <span class="italic">Network</span></h1>
+  <p class="subtitle">Bir metin dosyasındaki kişiler arasında geçen ilişkileri saptar, ağ haline getirir; merkezilik ve topluluk analizlerini yapar. Tarayıcı içinde çalışan yapay zeka NER ile şehir/kurum adlarını filtreler. Hiçbir veri sunucuya gönderilmez.</p>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="section">
+      <div class="section-title">Metin</div>
+      <div class="file-input-wrap">
+        <input type="file" id="file-input" accept=".txt,.md,text/plain">
+        <label for="file-input" class="file-label">
+          <span id="file-label-text">.txt dosyası seç veya sürükle</span>
+          <span class="icon">↑</span>
+        </label>
+      </div>
+      <label>Veya doğrudan yapıştırın</label>
+      <textarea id="text-input" placeholder="Buraya metni yapıştırın..."></textarea>
+      <div class="sample-row">
+        <button class="sample-btn" data-sample="hamlet">Hamlet örneği</button>
+        <button class="sample-btn" data-sample="clear">Temizle</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Kişi Tespiti</div>
+      <div class="radio-group" id="mode-group">
+        <label class="radio-option active">
+          <input type="radio" name="mode" value="ner" checked>
+          <span>🧠 Yapay Zeka NER <span style="color:var(--ink-dim);font-size:11px">(en doğru, yavaş)</span></span>
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="mode" value="auto">
+          <span>Otomatik (büyük harfle başlayanlar)</span>
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="mode" value="manual">
+          <span>Manuel isim listesi</span>
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="mode" value="hybrid">
+          <span>Karma: otomatik + manuel</span>
+        </label>
+      </div>
+
+      <div id="ner-section">
+        <label>NER Modeli</label>
+        <select id="ner-model">
+          <option value="Xenova/bert-base-multilingual-cased-ner-hrl">Çok dilli BERT (Türkçe dahil, ~700MB)</option>
+          <option value="Xenova/distilbert-base-multilingual-cased-ner-hrl">Çok dilli DistilBERT (daha hızlı, ~500MB)</option>
+          <option value="Xenova/bert-base-NER">İngilizce BERT-NER (~430MB)</option>
+        </select>
+        <div class="help">İlk çalıştırmada model indirilir ve tarayıcıda cache'lenir. Sonraki kullanımlar hızlıdır.</div>
+      </div>
+
+      <div id="manual-section" style="display:none">
+        <label>İsim listesi <span style="color:var(--ink-dim);font-weight:400">(her satıra bir isim; "|" ile takma adlar)</span></label>
+        <textarea id="name-list" placeholder="Mustafa Kemal Atatürk | Atatürk | Mustafa Kemal&#10;İsmet İnönü | İnönü | İsmet Paşa&#10;Fevzi Çakmak"></textarea>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parametreler</div>
+      <div class="row">
+        <div>
+          <label>Pencere</label>
+          <select id="window-mode">
+            <option value="sentence">Cümle</option>
+            <option value="paragraph">Paragraf</option>
+          </select>
+        </div>
+        <div>
+          <label>Min. ilişki</label>
+          <input type="number" id="min-weight" value="1" min="1" max="20">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>Min. geçme</label>
+          <input type="number" id="min-mentions" value="2" min="1" max="50">
+        </div>
+        <div>
+          <label>Maks. kişi</label>
+          <input type="number" id="max-nodes" value="50" min="5" max="500">
+        </div>
+      </div>
+      <label>Hariç tutulacak kelimeler <span style="color:var(--ink-dim);font-weight:400">(virgülle)</span></label>
+      <input type="text" id="exclude" placeholder="Türkiye, Ankara, Bey, Hanım">
+    </div>
+
+    <button class="primary" id="build-btn">Ağı Oluştur</button>
+
+    <div class="section" style="margin-top:28px">
+      <div class="section-title">Dışa Aktar</div>
+      <div class="toolbar">
+        <button class="secondary" id="export-png">PNG</button>
+        <button class="secondary" id="export-csv">CSV</button>
+        <button class="secondary" id="export-json">JSON</button>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="canvas-header">
+      <div class="stats">
+        <div>
+          <div class="stat-value" id="stat-nodes">—</div>
+          <div class="stat-label">Kişi</div>
+        </div>
+        <div>
+          <div class="stat-value" id="stat-edges">—</div>
+          <div class="stat-label">İlişki</div>
+        </div>
+        <div>
+          <div class="stat-value" id="stat-communities">—</div>
+          <div class="stat-label">Topluluk</div>
+        </div>
+        <div>
+          <div class="stat-value" id="stat-density">—</div>
+          <div class="stat-label">Yoğunluk</div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="secondary" id="toggle-physics">Fizik: Açık</button>
+        <button class="secondary" id="fit-btn">Sığdır</button>
+      </div>
+    </div>
+
+    <div id="network-canvas">
+      <div class="empty-state" id="empty">
+        <div class="number">01</div>
+        <h2>Henüz ağ yok</h2>
+        <p>Bir metin yükleyin, kişi tespit modunu seçin ve "Ağı Oluştur" düğmesine basın. Aynı cümle (ya da paragraf) içinde geçen kişiler birbirine bağlanır; bağlantı sıklığı ilişkinin gücünü belirler.</p>
+      </div>
+
+      <div class="detail-panel" id="detail-panel">
+        <button class="close" id="detail-close">×</button>
+        <h3 id="detail-name">—</h3>
+        <span class="commune-tag" id="detail-community">—</span>
+        <div class="metric"><span class="key">Metinde geçme</span><span class="val" id="detail-mentions">—</span></div>
+        <div class="metric"><span class="key">Bağlantı</span><span class="val" id="detail-degree">—</span></div>
+        <div class="metric"><span class="key">Betweenness</span><span class="val" id="detail-betweenness">—</span></div>
+        <div class="metric"><span class="key">Closeness</span><span class="val" id="detail-closeness">—</span></div>
+        <h4>En güçlü bağlantılar</h4>
+        <ul class="conn-list" id="detail-connections"></ul>
+      </div>
+    </div>
+
+    <div class="status-bar">
+      <span class="dot"></span>
+      <span id="status-text">Hazır. Bir metin yükleyin.</span>
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================================
+// ResizeObserver loop hatasını bastır (vis-network'ün bilinen
+// zararsız bir uyarısı — görsel bir etkisi yok)
+// ============================================================
+(function suppressResizeObserverError() {
+  const RESIZE_OBSERVER_ERR = /ResizeObserver loop/;
+  // window.onerror
+  window.addEventListener('error', e => {
+    if (e.message && RESIZE_OBSERVER_ERR.test(e.message)) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return true;
+    }
+  });
+  // unhandledrejection (Promise içinde fırlatılırsa)
+  window.addEventListener('unhandledrejection', e => {
+    const msg = e.reason && (e.reason.message || e.reason.toString());
+    if (msg && RESIZE_OBSERVER_ERR.test(msg)) {
+      e.preventDefault();
+    }
+  });
+  // Konsola da düşmesin diye console.error'ı sar
+  const origConsoleError = console.error;
+  console.error = function(...args) {
+    if (args[0] && typeof args[0] === 'string' && RESIZE_OBSERVER_ERR.test(args[0])) return;
+    origConsoleError.apply(console, args);
+  };
+})();
+
+// ============================================================
+// STATE
+// ============================================================
+let currentNetwork = null;
+let currentData = null;       // { nodes, edges, partition, centrality }
+let physicsEnabled = true;
+let nerPipeline = null;       // Cached HF pipeline
+let nerPipelineModel = null;  // Hangi model yüklü
+let transformersReady = false;
+
+window.addEventListener('transformers-ready', () => {
+  transformersReady = true;
+  setStatus('Transformers.js yüklendi. Hazır.');
+});
+
+// Topluluk renk paleti — sıcak/editöryel
+const PALETTE = [
+  '#ff5b3a', '#f4c95d', '#5ed3a9', '#7aa6d6', '#c084f5',
+  '#ff9472', '#e3a857', '#7fc3a8', '#8294b8', '#a872c9',
+  '#d63e1f', '#bf9442', '#3f9e7a', '#5c7aa3', '#8a5bb7'
+];
+
+// ============================================================
+// UI EVENT HANDLERS
+// ============================================================
+document.querySelectorAll('input[name="mode"]').forEach(r => {
+  r.addEventListener('change', e => {
+    document.querySelectorAll('.radio-option').forEach(opt => opt.classList.remove('active'));
+    e.target.closest('.radio-option').classList.add('active');
+    const manual = document.getElementById('manual-section');
+    const ner = document.getElementById('ner-section');
+    manual.style.display = (e.target.value === 'manual' || e.target.value === 'hybrid') ? 'block' : 'none';
+    ner.style.display = (e.target.value === 'ner') ? 'block' : 'none';
+  });
+});
+
+document.getElementById('file-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('file-label-text').textContent = file.name;
+  const text = await file.text();
+  document.getElementById('text-input').value = text;
+  setStatus(`${file.name} yüklendi · ${text.length.toLocaleString()} karakter`);
+});
+
+document.querySelectorAll('.sample-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const which = btn.dataset.sample;
+    if (which === 'clear') {
+      document.getElementById('text-input').value = '';
+      document.getElementById('file-label-text').textContent = '.txt dosyası seç veya sürükle';
+    } else if (which === 'hamlet') {
+      document.getElementById('text-input').value = HAMLET_SAMPLE;
+      document.getElementById('name-list').value = 'Hamlet\nClaudius\nGertrude\nPolonius\nOphelia\nLaertes\nHoratio\nRosencrantz\nGuildenstern\nFortinbras';
+      setStatus('Hamlet örneği yüklendi. "Ağı Oluştur"a basın.');
+    }
+  });
+});
+
+document.getElementById('build-btn').addEventListener('click', buildNetwork);
+document.getElementById('toggle-physics').addEventListener('click', togglePhysics);
+document.getElementById('fit-btn').addEventListener('click', () => currentNetwork?.fit({animation:true}));
+document.getElementById('detail-close').addEventListener('click', () => {
+  document.getElementById('detail-panel').classList.remove('visible');
+});
+
+document.getElementById('export-png').addEventListener('click', exportPNG);
+document.getElementById('export-csv').addEventListener('click', exportCSV);
+document.getElementById('export-json').addEventListener('click', exportJSON);
+
+// Drag-drop
+const fileLabel = document.querySelector('.file-label');
+['dragover','dragenter'].forEach(ev => fileLabel.addEventListener(ev, e => {
+  e.preventDefault();
+  fileLabel.style.borderColor = 'var(--accent)';
+}));
+['dragleave','drop'].forEach(ev => fileLabel.addEventListener(ev, e => {
+  e.preventDefault();
+  fileLabel.style.borderColor = '';
+}));
+fileLabel.addEventListener('drop', async e => {
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  document.getElementById('file-label-text').textContent = file.name;
+  const text = await file.text();
+  document.getElementById('text-input').value = text;
+  setStatus(`${file.name} yüklendi · ${text.length.toLocaleString()} karakter`);
+});
+
+// ============================================================
+// CORE: TEXT → NAMES
+// ============================================================
+
+// Daha geniş bir Türkçe/İngilizce stopword + ünvan + ay/gün listesi
+const STOPWORDS = new Set([
+  // Türkçe ay/gün
+  'Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık',
+  'Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi','Pazar',
+  // İngilizce ay/gün
+  'January','February','March','April','May','June','July','August','September','October','November','December',
+  'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday',
+  // Ünvanlar (tek başına gelirlerse)
+  'Bey','Hanım','Bay','Bayan','Sayın','Doktor','Dr','Prof','Profesör','Doçent','Yardımcı',
+  'Mr','Mrs','Ms','Dr','Sir','Lord','Lady','King','Queen','Prince','Princess','Duke','Count','Lord',
+  // Cümle başı sık kelimeler
+  'Bu','Şu','O','Ben','Sen','Biz','Siz','Onlar','Ama','Ancak','Fakat','Lakin','Çünkü','Eğer','Ya','Veya','Ve','Ki','Da','De',
+  'The','And','But','Or','If','When','Where','While','Although','Because','So','Then','Now','Here','There','This','That','These','Those',
+  'I','You','He','She','We','They','It','My','Your','His','Her','Our','Their',
+  'Lord','Yes','No','Oh','Ah','Well','Indeed','Alas','Hark','Hold','Come','Go','Speak','Tell','Look','See',
+  // Genel
+  'Hayır','Evet','Belki','Tamam','Şimdi','Sonra','Önce','İşte','Hep','Hiç'
+]);
+
+function normalizeWhitespace(s) {
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+// Cümle/paragraf bölücü
+function splitIntoWindows(text, mode) {
+  if (mode === 'paragraph') {
+    return text.split(/\n\s*\n/).map(p => normalizeWhitespace(p)).filter(p => p.length > 0);
+  }
+  // Cümle bölme: . ! ? ardından boşluk/yeni satır
+  // Bazı kısaltmaları korumak için basit bir koruma
+  const protectedText = text
+    .replace(/\bDr\./g, 'Dr<DOT>')
+    .replace(/\bMr\./g, 'Mr<DOT>')
+    .replace(/\bMrs\./g, 'Mrs<DOT>')
+    .replace(/\bMs\./g, 'Ms<DOT>')
+    .replace(/\bProf\./g, 'Prof<DOT>')
+    .replace(/\bvb\./g, 'vb<DOT>');
+  const sentences = protectedText.split(/(?<=[.!?…])\s+(?=[A-ZÇĞİÖŞÜ])|\n+/);
+  return sentences.map(s => s.replace(/<DOT>/g, '.').trim()).filter(s => s.length > 0);
+}
+
+// Otomatik tespit: ardışık büyük-harfle başlayan kelime gruplarını yakala
+// Türkçe + Latin alfabesi
+function extractCapitalizedRuns(text) {
+  // Cümle başını da kapsamak için cümle bölmesi yapıp her cümleyi ayrı analiz ediyoruz.
+  const sentences = splitIntoWindows(text, 'sentence');
+  const counts = new Map();
+  const tokenRe = /[\p{Lu}][\p{L}'’-]*/gu;
+
+  for (const sent of sentences) {
+    // Cümlenin ilk kelimesini atlayalım (büyük harfle başlar, çoğu zaman özel isim değil)
+    // Ama: birkaç kelimelik bir özel isim cümle başında olabilir; o yüzden tüm büyük-harf runlarını bul
+    // ve runun ilk kelimesi cümlenin ilk kelimesi ise, eğer run tek kelime ise stopword kontrolü ile ele.
+    const words = sent.split(/\s+/);
+    let firstWordIndex = 0; // ilk gerçek kelime
+    if (words.length === 0) continue;
+    // Build positions
+    let pos = 0;
+    const wordRanges = [];
+    for (const w of words) {
+      const idx = sent.indexOf(w, pos);
+      wordRanges.push([idx, idx + w.length]);
+      pos = idx + w.length;
+    }
+
+    // Ardışık run'ları bul
+    let run = [];
+    let runStartWordIdx = -1;
+    const processedRuns = [];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      const stripped = w.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '');
+      if (stripped.length === 0) {
+        if (run.length > 0) {
+          processedRuns.push({words: run, startIdx: runStartWordIdx});
+          run = []; runStartWordIdx = -1;
+        }
+        continue;
+      }
+      if (/^[\p{Lu}]/u.test(stripped)) {
+        if (run.length === 0) runStartWordIdx = i;
+        run.push(stripped);
+      } else {
+        if (run.length > 0) {
+          processedRuns.push({words: run, startIdx: runStartWordIdx});
+          run = []; runStartWordIdx = -1;
+        }
+      }
+    }
+    if (run.length > 0) processedRuns.push({words: run, startIdx: runStartWordIdx});
+
+    for (const {words: runWords, startIdx} of processedRuns) {
+      // Cümle başındaki tek kelimeyi filtrele (yaygın yanlış pozitif)
+      const isAtSentenceStart = startIdx === 0;
+      const name = runWords.join(' ');
+
+      // Filtreler
+      if (name.length < 2) continue;
+      if (STOPWORDS.has(name)) continue;
+      if (isAtSentenceStart && runWords.length === 1 && name.length <= 4) continue;
+      if (isAtSentenceStart && runWords.length === 1 && STOPWORDS.has(name)) continue;
+      // Çok kısa tek harfler
+      if (name.length === 1) continue;
+
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+// Manuel isim listesini parse et: her satır bir kanonik isim,
+// "|" ile takma adlar
+function parseNameList(raw) {
+  const aliases = new Map();      // alias_lower -> canonical
+  const canonicals = new Set();
+  raw.split(/\n/).forEach(line => {
+    const parts = line.split('|').map(s => s.trim()).filter(Boolean);
+    if (parts.length === 0) return;
+    const canonical = parts[0];
+    canonicals.add(canonical);
+    aliases.set(canonical, canonical);
+    parts.forEach(p => aliases.set(p, canonical));
+  });
+  return {aliases, canonicals};
+}
+
+// Manuel: bir cümlede hangi kanonik isimler geçiyor?
+function findNamesInText(text, aliasMap) {
+  const found = new Set();
+  // En uzun isim önce eşleşsin diye sırala
+  const sortedAliases = [...aliasMap.keys()].sort((a,b) => b.length - a.length);
+  for (const alias of sortedAliases) {
+    // Kelime sınırı ile arama (Unicode aware)
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?<![\\p{L}])${escaped}(?![\\p{L}])`, 'giu');
+    if (re.test(text)) {
+      found.add(aliasMap.get(alias));
+    }
+  }
+  return found;
+}
+
+// ============================================================
+// NER (Transformers.js)
+// ============================================================
+async function loadNERPipeline(modelName, onProgress) {
+  if (nerPipeline && nerPipelineModel === modelName) {
+    return nerPipeline;
+  }
+  if (!transformersReady) {
+    setStatus('Transformers.js yükleniyor, lütfen bekleyin...');
+    // Hazır olmasını bekle
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Transformers.js yüklenemedi')), 30000);
+      if (transformersReady) { clearTimeout(timeout); resolve(); return; }
+      window.addEventListener('transformers-ready', () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+  }
+  const { pipeline } = window.transformers;
+  nerPipeline = await pipeline('token-classification', modelName, {
+    progress_callback: (data) => {
+      if (onProgress) onProgress(data);
+    }
+  });
+  nerPipelineModel = modelName;
+  return nerPipeline;
+}
+
+// Bir cümlede NER çalıştır, sadece PERSON entity'lerini döndür
+async function extractPersonsFromText(pipe, text) {
+  if (!text || text.trim().length === 0) return [];
+  try {
+    const results = await pipe(text, { ignore_labels: [] });
+    // Modelin etiket formatı: B-PER, I-PER vs.
+    // Subword'leri birleştir
+    const persons = [];
+    let current = null;
+    for (const tok of results) {
+      const entity = tok.entity || tok.entity_group || '';
+      const isPer = /PER/i.test(entity);
+      const isB = entity.startsWith('B-') || tok.entity_group;
+      const word = tok.word || '';
+
+      if (isPer) {
+        // Subword başlangıcı mı?
+        const isSubword = word.startsWith('##');
+        const cleanWord = word.replace(/^##/, '');
+
+        if (current === null || (isB && !isSubword)) {
+          // Yeni entity başlat
+          if (current) persons.push(current);
+          current = { text: cleanWord, start: tok.start, end: tok.end };
+        } else {
+          // Devamı
+          if (isSubword) {
+            current.text += cleanWord;
+          } else {
+            current.text += ' ' + cleanWord;
+          }
+          current.end = tok.end;
+        }
+      } else {
+        if (current) {
+          persons.push(current);
+          current = null;
+        }
+      }
+    }
+    if (current) persons.push(current);
+    return persons.map(p => p.text.trim()).filter(p => p.length >= 2);
+  } catch(e) {
+    console.warn('NER hatası:', e);
+    return [];
+  }
+}
+
+// İsim normalleştirme (NER çıktısı için)
+function normalizeNERName(name) {
+  // Baş/son noktalama temizle
+  name = name.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '');
+  // Birden çok boşluğu tek boşluğa
+  name = name.replace(/\s+/g, ' ').trim();
+  return name;
+}
+
+// Aynı kişiye ait varyasyonları otomatik birleştir
+// Örn: "Atatürk", "Mustafa Kemal", "Mustafa Kemal Atatürk" → en uzunda topla
+function autoMergeNames(nameOccurrences) {
+  // nameOccurrences: Map<name, {count, windowIds}>
+  const names = [...nameOccurrences.keys()].sort((a, b) => b.length - a.length);
+  const canonical = new Map();    // name → canonical
+  const merged = new Map();        // canonical → {count, windowIds:Set}
+
+  for (const name of names) {
+    // Bu isim daha uzun bir ismin alt-stringi mi?
+    let found = null;
+    for (const longer of canonical.keys()) {
+      if (longer === name) continue;
+      // Tam kelime eşleşmesi
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, 'iu');
+      if (re.test(longer)) {
+        // Bu isim, daha uzun bir ismin parçası
+        found = canonical.get(longer);
+        break;
+      }
+    }
+    const canon = found || name;
+    canonical.set(name, canon);
+  }
+
+  // Merge
+  for (const [name, occ] of nameOccurrences) {
+    const canon = canonical.get(name) || name;
+    if (!merged.has(canon)) {
+      merged.set(canon, { count: 0, windowIds: new Set() });
+    }
+    const m = merged.get(canon);
+    m.count += occ.count;
+    occ.windowIds.forEach(w => m.windowIds.add(w));
+  }
+  return merged;
+}
+
+// ============================================================
+// BUILD NETWORK
+// ============================================================
+async function buildNetwork() {
+  const text = document.getElementById('text-input').value.trim();
+  if (!text) {
+    setStatus('⚠ Lütfen önce bir metin girin veya dosya yükleyin.', 'warn');
+    return;
+  }
+
+  const btn = document.getElementById('build-btn');
+  btn.disabled = true;
+  btn.textContent = 'İşleniyor...';
+  setStatus('Metin işleniyor...');
+
+  // Async olarak bir tick sonra başla ki UI freeze olmasın
+  await new Promise(r => setTimeout(r, 50));
+
+  try {
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    const windowMode = document.getElementById('window-mode').value;
+    const minWeight = parseInt(document.getElementById('min-weight').value);
+    const minMentions = parseInt(document.getElementById('min-mentions').value);
+    const maxNodes = parseInt(document.getElementById('max-nodes').value);
+    const excludeRaw = document.getElementById('exclude').value;
+    const excludeSet = new Set(excludeRaw.split(',').map(s => s.trim()).filter(Boolean));
+
+    // 1) Pencerelere böl
+    const windows = splitIntoWindows(text, windowMode);
+
+    // 2) Kişi tespiti — moda göre
+    let aliasMap = new Map();
+    let nameCounts = new Map();
+    let nerWindowMembership = null;  // Map<windowIdx, Set<canonical name>>
+
+    if (mode === 'ner') {
+      // Yapay Zeka NER modu
+      const modelName = document.getElementById('ner-model').value;
+      setStatus('🧠 NER modeli yükleniyor (ilk kullanımda 1-2 dakika sürebilir)...');
+      await new Promise(r => setTimeout(r, 50));
+
+      const pipe = await loadNERPipeline(modelName, (data) => {
+        if (data.status === 'progress' && data.progress) {
+          const pct = data.progress.toFixed(1);
+          setStatus(`🧠 Model indiriliyor: ${data.file || ''} · %${pct}`);
+        } else if (data.status === 'done') {
+          setStatus(`🧠 Yükleniyor: ${data.file || ''} tamamlandı`);
+        } else if (data.status === 'ready') {
+          setStatus('🧠 Model hazır, metin analiz ediliyor...');
+        }
+      });
+
+      setStatus(`🧠 ${windows.length} ${windowMode === 'sentence' ? 'cümle' : 'paragraf'} analiz ediliyor...`);
+      await new Promise(r => setTimeout(r, 30));
+
+      // Her cümlede NER çalıştır — batch progress
+      const nameOccurrences = new Map();   // name → {count, windowIds:Set}
+      nerWindowMembership = new Map();      // windowIdx → Set<name>
+
+      for (let wi = 0; wi < windows.length; wi++) {
+        const win = windows[wi];
+        if (win.length > 1000) {
+          // Çok uzun pencereyi parçala
+          const chunks = win.match(/.{1,800}(?:\s|$)/g) || [win];
+          const allPersons = [];
+          for (const chunk of chunks) {
+            const persons = await extractPersonsFromText(pipe, chunk);
+            allPersons.push(...persons);
+          }
+          var personsInWin = allPersons;
+        } else {
+          var personsInWin = await extractPersonsFromText(pipe, win);
+        }
+
+        const winNames = new Set();
+        for (const raw of personsInWin) {
+          const name = normalizeNERName(raw);
+          if (name.length < 2 || excludeSet.has(name)) continue;
+          if (!nameOccurrences.has(name)) {
+            nameOccurrences.set(name, { count: 0, windowIds: new Set() });
+          }
+          nameOccurrences.get(name).count++;
+          nameOccurrences.get(name).windowIds.add(wi);
+          winNames.add(name);
+        }
+        nerWindowMembership.set(wi, winNames);
+
+        // Progress göster (her 10 cümlede bir)
+        if (wi % 10 === 0) {
+          setStatus(`🧠 NER analiz: ${wi}/${windows.length} cümle · ${nameOccurrences.size} aday isim`);
+          await new Promise(r => setTimeout(r, 0));   // UI'a nefes aldır
+        }
+      }
+
+      setStatus('🧠 İsimler birleştiriliyor (otomatik takma ad eşleştirme)...');
+      await new Promise(r => setTimeout(r, 20));
+
+      // İsim varyasyonlarını birleştir (Atatürk + Mustafa Kemal Atatürk gibi)
+      const merged = autoMergeNames(nameOccurrences);
+
+      // nerWindowMembership'i de canonical isimlere göre güncelle
+      const canonicalLookup = new Map();
+      for (const [name, occ] of nameOccurrences) {
+        for (const [canon, _] of merged) {
+          // İsim canonical'a mı dahil? autoMergeNames mantığını tekrar uygula
+          if (name === canon) { canonicalLookup.set(name, canon); break; }
+          const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`, 'iu');
+          if (re.test(canon)) { canonicalLookup.set(name, canon); break; }
+        }
+        if (!canonicalLookup.has(name)) canonicalLookup.set(name, name);
+      }
+      // Pencere üyeliklerini canonical'a göre güncelle
+      for (const [wi, nameSet] of nerWindowMembership) {
+        const canonSet = new Set();
+        for (const n of nameSet) {
+          canonSet.add(canonicalLookup.get(n) || n);
+        }
+        nerWindowMembership.set(wi, canonSet);
+      }
+
+      // nameCounts'a aktar
+      for (const [canon, info] of merged) {
+        nameCounts.set(canon, info.count);
+      }
+
+      setStatus(`🧠 NER tamamlandı: ${nameCounts.size} kişi tespit edildi (birleştirme sonrası).`);
+    }
+
+    if (mode === 'auto' || mode === 'hybrid') {
+      const autoCounts = extractCapitalizedRuns(text);
+      for (const [n, c] of autoCounts) {
+        if (!excludeSet.has(n)) nameCounts.set(n, c);
+      }
+    }
+    if (mode === 'manual' || mode === 'hybrid') {
+      const listRaw = document.getElementById('name-list').value.trim();
+      if (!listRaw && mode === 'manual') {
+        throw new Error('Manuel modda isim listesi gerekiyor.');
+      }
+      if (listRaw) {
+        const {aliases, canonicals} = parseNameList(listRaw);
+        aliasMap = aliases;
+        // Hybrid'de: önce otomatik sayımdaki isimleri kanonik ad altında topla
+        if (mode === 'hybrid') {
+          const merged = new Map();
+          for (const [n, c] of nameCounts) {
+            const canonical = aliases.get(n) || n;
+            if (excludeSet.has(canonical)) continue;
+            merged.set(canonical, (merged.get(canonical) || 0) + c);
+          }
+          nameCounts = merged;
+        } else {
+          // Sadece manuel: metinde kaç kez geçtiklerini say
+          nameCounts = new Map();
+          for (const canonical of canonicals) {
+            if (excludeSet.has(canonical)) continue;
+            // Tüm aliaslarını topla
+            let total = 0;
+            for (const [alias, can] of aliases) {
+              if (can !== canonical) continue;
+              const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const re = new RegExp(`(?<![\\p{L}])${escaped}(?![\\p{L}])`, 'giu');
+              const matches = text.match(re);
+              if (matches) total += matches.length;
+            }
+            if (total > 0) nameCounts.set(canonical, total);
+          }
+        }
+      }
+    }
+
+    // 3) Top-N karakterleri seç
+    const sorted = [...nameCounts.entries()]
+      .filter(([_, c]) => c >= minMentions)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, maxNodes);
+    const topNames = new Set(sorted.map(([n]) => n));
+
+    if (topNames.size === 0) {
+      throw new Error('Hiçbir kişi tespit edilemedi. Parametreleri kontrol edin (min. geçme sayısını azaltın).');
+    }
+
+    // 4) Co-occurrence: her pencerede topNames içinden hangi kişiler var?
+    const cooc = new Map();    // "A||B" -> count
+
+    // Manuel/hybrid için aliasMap'i pencere bazlı kullanacağız
+    const useAliasLookup = (mode === 'manual' || mode === 'hybrid') && aliasMap.size > 0;
+    const sortedAliasesByLen = useAliasLookup
+      ? [...aliasMap.keys()].sort((a,b) => b.length - a.length)
+      : [];
+
+    for (let wi = 0; wi < windows.length; wi++) {
+      const win = windows[wi];
+      const present = new Set();
+
+      if (mode === 'ner' && nerWindowMembership) {
+        // NER zaten pencere üyeliğini hesapladı
+        const winNames = nerWindowMembership.get(wi) || new Set();
+        for (const name of winNames) {
+          if (topNames.has(name)) present.add(name);
+        }
+      } else if (useAliasLookup) {
+        for (const alias of sortedAliasesByLen) {
+          const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(`(?<![\\p{L}])${escaped}(?![\\p{L}])`, 'iu');
+          if (re.test(win)) {
+            const canonical = aliasMap.get(alias);
+            if (topNames.has(canonical)) present.add(canonical);
+          }
+        }
+      } else {
+        // Sadece otomatik mod
+        const winCounts = extractCapitalizedRuns(win);
+        for (const name of winCounts.keys()) {
+          if (topNames.has(name)) present.add(name);
+        }
+      }
+
+      // Tüm ikili kombinasyonlar
+      const arr = [...present].sort();
+      for (let i = 0; i < arr.length; i++) {
+        for (let j = i+1; j < arr.length; j++) {
+          const key = arr[i] + '||' + arr[j];
+          cooc.set(key, (cooc.get(key) || 0) + 1);
+        }
+      }
+    }
+
+    // 5) Graph oluştur
+    const nodes = [];
+    const edges = [];
+    const adj = new Map();     // name -> Set of neighbor names
+    const nodeIdx = new Map();
+    let idx = 0;
+
+    for (const name of topNames) {
+      nodeIdx.set(name, idx);
+      adj.set(name, new Map());
+      nodes.push({
+        id: idx,
+        label: name,
+        mentions: nameCounts.get(name) || 0
+      });
+      idx++;
+    }
+
+    for (const [key, w] of cooc) {
+      if (w < minWeight) continue;
+      const [a, b] = key.split('||');
+      if (!topNames.has(a) || !topNames.has(b)) continue;
+      edges.push({from: nodeIdx.get(a), to: nodeIdx.get(b), weight: w});
+      adj.get(a).set(b, w);
+      adj.get(b).set(a, w);
+    }
+
+    // İzole düğümleri çıkar
+    const connectedNodes = [];
+    for (const node of nodes) {
+      if (adj.get(node.label).size > 0) connectedNodes.push(node);
+    }
+    if (connectedNodes.length === 0) {
+      throw new Error('Hiç bağlantı bulunamadı. "Min. ilişki" değerini düşürün.');
+    }
+
+    // 6) Centrality hesapla
+    const centrality = computeCentrality(connectedNodes, edges, adj);
+
+    // 7) Topluluk tespiti (Louvain'a basit benzer: label propagation)
+    const partition = louvainLike(connectedNodes, edges, adj);
+
+    // 8) Render
+    renderNetwork(connectedNodes, edges, adj, centrality, partition);
+
+    setStatus(`✓ Ağ oluşturuldu · ${connectedNodes.length} kişi, ${edges.length} ilişki`);
+  } catch (e) {
+    console.error(e);
+    setStatus('✗ Hata: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Ağı Oluştur';
+  }
+}
+
+// ============================================================
+// CENTRALITY
+// ============================================================
+function computeCentrality(nodes, edges, adj) {
+  const n = nodes.length;
+  const nameToIdx = new Map(nodes.map((nd, i) => [nd.label, i]));
+
+  // Adjacency listesi index bazlı
+  const adjList = nodes.map(() => []);
+  for (const e of edges) {
+    const a = nodes.find(nd => nd.id === e.from)?.label;
+    const b = nodes.find(nd => nd.id === e.to)?.label;
+    if (!a || !b) continue;
+    const ai = nameToIdx.get(a);
+    const bi = nameToIdx.get(b);
+    if (ai === undefined || bi === undefined) continue;
+    adjList[ai].push(bi);
+    adjList[bi].push(ai);
+  }
+
+  // Degree centrality (normalized)
+  const degree = adjList.map(l => l.length / Math.max(1, n - 1));
+
+  // Closeness + Betweenness via BFS (Brandes algoritması)
+  const betweenness = new Array(n).fill(0);
+  const closeness = new Array(n).fill(0);
+
+  for (let s = 0; s < n; s++) {
+    const stack = [];
+    const pred = adjList.map(() => []);
+    const sigma = new Array(n).fill(0);
+    sigma[s] = 1;
+    const dist = new Array(n).fill(-1);
+    dist[s] = 0;
+    const queue = [s];
+
+    while (queue.length) {
+      const v = queue.shift();
+      stack.push(v);
+      for (const w of adjList[v]) {
+        if (dist[w] < 0) {
+          dist[w] = dist[v] + 1;
+          queue.push(w);
+        }
+        if (dist[w] === dist[v] + 1) {
+          sigma[w] += sigma[v];
+          pred[w].push(v);
+        }
+      }
+    }
+
+    // Closeness
+    let totalDist = 0, reachable = 0;
+    for (let i = 0; i < n; i++) {
+      if (dist[i] > 0) { totalDist += dist[i]; reachable++; }
+    }
+    closeness[s] = reachable > 0 ? reachable / totalDist : 0;
+
+    // Betweenness accumulate
+    const delta = new Array(n).fill(0);
+    while (stack.length) {
+      const w = stack.pop();
+      for (const v of pred[w]) {
+        delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w]);
+      }
+      if (w !== s) betweenness[w] += delta[w];
+    }
+  }
+
+  // Normalize betweenness for undirected graph
+  const norm = n > 2 ? 2 / ((n - 1) * (n - 2)) : 1;
+  for (let i = 0; i < n; i++) betweenness[i] *= norm;
+
+  return {degree, betweenness, closeness, nameToIdx};
+}
+
+// ============================================================
+// COMMUNITY (basit label propagation, Louvain'a iyi bir yaklaşım)
+// ============================================================
+function louvainLike(nodes, edges, adj) {
+  const labels = new Map();
+  nodes.forEach((n, i) => labels.set(n.label, i));
+
+  let changed = true;
+  let iter = 0;
+  while (changed && iter < 30) {
+    changed = false;
+    const order = [...nodes].sort(() => Math.random() - 0.5);
+    for (const node of order) {
+      const neighborWeights = new Map();
+      for (const [neighbor, w] of adj.get(node.label)) {
+        const lab = labels.get(neighbor);
+        neighborWeights.set(lab, (neighborWeights.get(lab) || 0) + w);
+      }
+      if (neighborWeights.size === 0) continue;
+      const bestLabel = [...neighborWeights.entries()]
+        .sort((a, b) => b[1] - a[1])[0][0];
+      if (labels.get(node.label) !== bestLabel) {
+        labels.set(node.label, bestLabel);
+        changed = true;
+      }
+    }
+    iter++;
+  }
+
+  // Label'ları 0,1,2... olarak yeniden numaralandır
+  const uniqueLabels = [...new Set(labels.values())];
+  const labelMap = new Map(uniqueLabels.map((l, i) => [l, i]));
+  const result = new Map();
+  for (const [name, lab] of labels) {
+    result.set(name, labelMap.get(lab));
+  }
+  return result;
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function renderNetwork(nodes, edges, adj, centrality, partition) {
+  const nameToIdx = centrality.nameToIdx;
+  const numCommunities = new Set(partition.values()).size;
+
+  const visNodes = nodes.map(n => {
+    const ci = nameToIdx.get(n.label);
+    const com = partition.get(n.label) ?? 0;
+    const color = PALETTE[com % PALETTE.length];
+    const size = 10 + Math.sqrt(n.mentions) * 6 + centrality.degree[ci] * 25;
+    return {
+      id: n.id,
+      label: n.label,
+      mentions: n.mentions,
+      community: com,
+      color: {
+        background: color,
+        border: shade(color, -20),
+        highlight: { background: shade(color, 15), border: '#ffffff' }
+      },
+      size: size,
+      font: {
+        color: '#e8e4d8',
+        size: Math.min(20, 11 + centrality.degree[ci] * 18),
+        face: 'Fraunces, serif',
+        strokeWidth: 3,
+        strokeColor: '#0e1116'
+      },
+      borderWidth: 2
+    };
+  });
+
+  const maxW = Math.max(1, ...edges.map(e => e.weight));
+  const visEdges = edges.map(e => ({
+    from: e.from,
+    to: e.to,
+    value: e.weight,
+    width: 0.5 + 4 * (e.weight / maxW),
+    color: {
+      color: 'rgba(232, 228, 216, 0.15)',
+      highlight: '#ff5b3a',
+      hover: '#f4c95d'
+    },
+    smooth: { type: 'continuous', roundness: 0.2 }
+  }));
+
+  // Stats güncelle
+  document.getElementById('stat-nodes').textContent = nodes.length;
+  document.getElementById('stat-edges').textContent = edges.length;
+  document.getElementById('stat-communities').textContent = numCommunities;
+  const possibleEdges = nodes.length * (nodes.length - 1) / 2;
+  const density = possibleEdges > 0 ? (edges.length / possibleEdges) : 0;
+  document.getElementById('stat-density').textContent = density.toFixed(3);
+
+  // vis.js Network oluştur
+  const container = document.getElementById('network-canvas');
+  document.getElementById('empty').classList.add('hidden');
+
+  if (currentNetwork) currentNetwork.destroy();
+
+  currentNetwork = new vis.Network(container,
+    { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) },
+    {
+      autoResize: false,         // ResizeObserver loop'unun ana tetikleyicisi
+      physics: {
+        enabled: physicsEnabled,
+        forceAtlas2Based: {
+          gravitationalConstant: -60,
+          centralGravity: 0.012,
+          springLength: 120,
+          springConstant: 0.08,
+          damping: 0.4
+        },
+        solver: 'forceAtlas2Based',
+        stabilization: { iterations: 250, fit: true }
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 200,
+        navigationButtons: false,
+        keyboard: false,
+        zoomView: true
+      },
+      nodes: {
+        shape: 'dot',
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.4)', size: 8, x: 2, y: 2 }
+      },
+      edges: {
+        smooth: false
+      }
+    }
+  );
+
+  // Manuel resize: pencere boyutu değişince debounce ile yeniden boyutlandır
+  if (window._netResizeHandler) {
+    window.removeEventListener('resize', window._netResizeHandler);
+  }
+  let resizeTimer;
+  window._netResizeHandler = () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (currentNetwork) {
+        try { currentNetwork.redraw(); } catch(e) {}
+      }
+    }, 150);
+  };
+  window.addEventListener('resize', window._netResizeHandler);
+
+  // Click handler — detay paneli aç
+  currentNetwork.on('click', params => {
+    if (params.nodes.length > 0) {
+      const nodeId = params.nodes[0];
+      showDetails(nodeId, nodes, edges, adj, centrality, partition);
+    } else {
+      document.getElementById('detail-panel').classList.remove('visible');
+    }
+  });
+
+  // State sakla
+  currentData = { nodes, edges, adj, centrality, partition, visNodes, visEdges };
+}
+
+function showDetails(nodeId, nodes, edges, adj, centrality, partition) {
+  const node = nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  const ci = centrality.nameToIdx.get(node.label);
+  const com = partition.get(node.label);
+  const color = PALETTE[com % PALETTE.length];
+
+  document.getElementById('detail-name').textContent = node.label;
+  const tag = document.getElementById('detail-community');
+  tag.textContent = `Topluluk ${com}`;
+  tag.style.background = color;
+  tag.style.color = '#0e1116';
+
+  document.getElementById('detail-mentions').textContent = node.mentions;
+  document.getElementById('detail-degree').textContent = adj.get(node.label).size;
+  document.getElementById('detail-betweenness').textContent = centrality.betweenness[ci].toFixed(3);
+  document.getElementById('detail-closeness').textContent = centrality.closeness[ci].toFixed(3);
+
+  const connList = document.getElementById('detail-connections');
+  connList.innerHTML = '';
+  const conns = [...adj.get(node.label).entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (const [neighbor, w] of conns) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${neighbor}</span><span class="w">${w}</span>`;
+    connList.appendChild(li);
+  }
+
+  document.getElementById('detail-panel').classList.add('visible');
+}
+
+function togglePhysics() {
+  physicsEnabled = !physicsEnabled;
+  document.getElementById('toggle-physics').textContent = `Fizik: ${physicsEnabled ? 'Açık' : 'Kapalı'}`;
+  if (currentNetwork) currentNetwork.setOptions({ physics: { enabled: physicsEnabled } });
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function shade(hex, amt) {
+  const num = parseInt(hex.replace('#',''), 16);
+  let r = (num >> 16) + amt;
+  let g = ((num >> 8) & 0xff) + amt;
+  let b = (num & 0xff) + amt;
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+  return '#' + ((r<<16) | (g<<8) | b).toString(16).padStart(6, '0');
+}
+
+function setStatus(msg, type='info') {
+  const el = document.getElementById('status-text');
+  el.textContent = msg;
+  const dot = document.querySelector('.status-bar .dot');
+  if (type === 'warn') dot.style.background = '#f4c95d';
+  else if (type === 'error') dot.style.background = '#ff5b3a';
+  else dot.style.background = '#5ed3a9';
+}
+
+// ============================================================
+// EXPORT
+// ============================================================
+function exportPNG() {
+  if (!currentNetwork) { setStatus('⚠ Önce bir ağ oluşturun.', 'warn'); return; }
+  const canvas = document.querySelector('#network-canvas canvas');
+  if (!canvas) { setStatus('⚠ Görsel bulunamadı.', 'warn'); return; }
+  const link = document.createElement('a');
+  link.download = 'iliski_agi.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  setStatus('✓ PNG indirildi.');
+}
+
+function exportCSV() {
+  if (!currentData) { setStatus('⚠ Önce bir ağ oluşturun.', 'warn'); return; }
+  const { nodes, edges, centrality, partition } = currentData;
+  let csv = 'Kişi,Geçme,Bağlantı,Degree,Betweenness,Closeness,Topluluk\n';
+  for (const n of nodes) {
+    const ci = centrality.nameToIdx.get(n.label);
+    csv += `"${n.label}",${n.mentions},${currentData.adj.get(n.label).size},${centrality.degree[ci].toFixed(4)},${centrality.betweenness[ci].toFixed(4)},${centrality.closeness[ci].toFixed(4)},${partition.get(n.label)}\n`;
+  }
+  csv += '\nKaynak,Hedef,Ağırlık\n';
+  const idToName = new Map(nodes.map(n => [n.id, n.label]));
+  for (const e of edges) {
+    csv += `"${idToName.get(e.from)}","${idToName.get(e.to)}",${e.weight}\n`;
+  }
+  downloadText(csv, 'iliski_agi.csv', 'text/csv');
+  setStatus('✓ CSV indirildi.');
+}
+
+function exportJSON() {
+  if (!currentData) { setStatus('⚠ Önce bir ağ oluşturun.', 'warn'); return; }
+  const { nodes, edges, centrality, partition, adj } = currentData;
+  const idToName = new Map(nodes.map(n => [n.id, n.label]));
+  const data = {
+    nodes: nodes.map(n => {
+      const ci = centrality.nameToIdx.get(n.label);
+      return {
+        name: n.label,
+        mentions: n.mentions,
+        community: partition.get(n.label),
+        degree: adj.get(n.label).size,
+        degreeCentrality: centrality.degree[ci],
+        betweenness: centrality.betweenness[ci],
+        closeness: centrality.closeness[ci]
+      };
+    }),
+    edges: edges.map(e => ({
+      source: idToName.get(e.from),
+      target: idToName.get(e.to),
+      weight: e.weight
+    }))
+  };
+  downloadText(JSON.stringify(data, null, 2), 'iliski_agi.json', 'application/json');
+  setStatus('✓ JSON indirildi.');
+}
+
+function downloadText(content, filename, mime) {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// HAMLET ÖRNEK METNİ (kısa, demo amaçlı)
+// ============================================================
+const HAMLET_SAMPLE = `Hamlet stands on the battlements of Elsinore, brooding. Horatio approaches with news of the ghost. Together, Hamlet and Horatio wait through the cold night.
+
+The ghost appears to Hamlet, claiming to be his murdered father. Claudius, the king, has poisoned him to take the throne and marry Gertrude. Hamlet swears revenge.
+
+Polonius, the chamberlain, warns his daughter Ophelia about Hamlet's affections. Laertes, Ophelia's brother, gives similar warnings before leaving for France.
+
+In the court, Claudius and Gertrude question Hamlet's strange behavior. They summon Rosencrantz and Guildenstern, Hamlet's old friends, to spy on him. Hamlet sees through them quickly.
+
+Hamlet stages a play to test Claudius. The king's reaction confirms his guilt. Hamlet confronts Gertrude in her chamber, where Polonius hides behind a curtain. Hamlet kills Polonius, mistaking him for Claudius.
+
+Ophelia, mad with grief over her father Polonius and Hamlet's rejection, drowns. Laertes returns furious. Claudius and Laertes conspire to kill Hamlet with a poisoned sword.
+
+In the duel, Laertes wounds Hamlet, but they exchange swords. Hamlet wounds Laertes. Gertrude drinks poisoned wine meant for Hamlet. As she dies, Laertes confesses Claudius's plot. Hamlet stabs Claudius and forces him to drink the poison.
+
+Dying, Hamlet asks Horatio to tell his story. Fortinbras, the prince of Norway, arrives to claim the throne of Denmark.`;
+
+// İlk yükleme
+setStatus('Hazır. Bir metin yükleyin veya örneği deneyin.');
+</script>
+</body>
+</html>
